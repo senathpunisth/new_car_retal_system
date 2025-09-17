@@ -1,3 +1,7 @@
+const { connectDB } = require('./config/database'); // Add this line
+
+connectDB(); // Add this line to actually attempt the DB connection
+
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
