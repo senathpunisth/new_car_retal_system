@@ -1,83 +1,118 @@
-const User = require('../models/User');
-const jwt = require('jsonwebtoken');
+// controllers/authController.js
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const { pool } = require("../config/database");
+const User = require("../models/User");
 
-const generateToken = (userId) => {
-  return jwt.sign({ userId }, process.env.JWT_SECRET || 'your_jwt_secret', { expiresIn: '7d' });
-};
+const userModel = new User(pool);
 
-exports.register = async (req, res) => {
+const signToken = (payload) =>
+  jwt.sign(payload, process.env.JWT_SECRET || "dev_secret_change_me", {
+    expiresIn: process.env.JWT_EXPIRES_IN || "7d",
+  });
+
+/** SIGNUP (you already have this; keep as-is if working) */
+exports.signup = async (req, res) => {
   try {
-    const { name, email, phone, password } = req.body;
-    
-    // Check if user already exists
-    const existingUser = await User.findByEmail(email);
-    if (existingUser) {
-      return res.status(400).json({ message: 'User already exists with this email' });
+    const { fullName, email, password } = req.body || {};
+    if (!fullName || !email || !password) {
+      return res.status(400).json({ ok: false, error: "All fields are required" });
     }
-    
-    // Create new user
-    const result = await User.create({ name, email, phone, password });
-    const user = await User.findById(result.insertId);
-    
-    // Generate token
-    const token = generateToken(user.id);
-    
-    res.status(201).json({
-      message: 'User registered successfully',
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone
-      }
+    if (!/\S+@\S+\.\S+/.test(email)) {
+      return res.status(400).json({ ok: false, error: "Valid email is required" });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ ok: false, error: "Password must be at least 6 characters" });
+    }
+
+    const existing = await userModel.findByEmail(email.trim().toLowerCase());
+    if (existing) {
+      return res.status(409).json({ ok: false, error: "Email already registered" });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const userId = await userModel.create(
+      fullName.trim(),
+      email.trim().toLowerCase(),
+      passwordHash
+    );
+
+    const token = signToken({ sub: String(userId), email: email.trim().toLowerCase(), role: "user" });
+
+    return res.status(201).json({
+      ok: true,
+      data: {
+        token,
+        user: { id: userId, fullName: fullName.trim(), email: email.trim().toLowerCase(), role: "user" },
+      },
     });
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ message: 'Server error during registration' });
+  } catch (err) {
+    if (err?.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({ ok: false, error: "Email already registered" });
+    }
+    console.error("Signup error:", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
   }
 };
 
+/** LOGIN */
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    
-    // Find user by email
-    const user = await User.findByEmail(email);
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ ok: false, error: "Email and password are required" });
+    }
+
+    const user = await userModel.findByEmail(email.trim().toLowerCase());
     if (!user) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      return res.status(401).json({ ok: false, error: "Invalid credentials" });
     }
-    
-    // Check password
-    const isMatch = await User.comparePassword(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) {
+      return res.status(401).json({ ok: false, error: "Invalid credentials" });
     }
-    
-    // Generate token
-    const token = generateToken(user.id);
-    
-    res.json({
-      message: 'Login successful',
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone
-      }
+
+    const token = signToken({ sub: String(user.id), email: user.email, role: user.role || "user" });
+
+    return res.json({
+      ok: true,
+      data: {
+        token,
+        user: {
+          id: user.id,
+          fullName: user.full_name,
+          email: user.email,
+          role: user.role || "user",
+        },
+      },
     });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ message: 'Server error during login' });
+  } catch (err) {
+    console.error("Login error:", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
   }
 };
 
-exports.getProfile = async (req, res) => {
+/** GET CURRENT USER (optional helper) */
+exports.me = async (req, res) => {
   try {
-    res.json({ user: req.user });
-  } catch (error) {
-    console.error('Get profile error:', error);
-    res.status(500).json({ message: 'Server error' });
+    const id = Number(req.auth?.sub);
+    if (!id) return res.status(401).json({ ok: false, error: "Unauthorized" });
+
+    const user = await userModel.findById(id);
+    if (!user) return res.status(404).json({ ok: false, error: "User not found" });
+
+    return res.json({
+      ok: true,
+      data: {
+        id: user.id,
+        fullName: user.full_name,
+        email: user.email,
+        role: user.role || "user",
+      },
+    });
+  } catch (err) {
+    console.error("Me error:", err);
+    return res.status(500).json({ ok: false, error: "Server error" });
   }
 };

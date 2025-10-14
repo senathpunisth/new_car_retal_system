@@ -1,42 +1,25 @@
-const db = require('../config/database');
-const bcrypt = require('bcryptjs');
-
+// models/User.js
 class User {
-  static async create(userData) {
-    const { name, email, phone, password } = userData;
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
-    return new Promise((resolve, reject) => {
-      const query = 'INSERT INTO users (name, email, phone, password) VALUES (?, ?, ?, ?)';
-      db.execute(query, [name, email, phone, hashedPassword], (err, results) => {
-        if (err) reject(err);
-        else resolve(results);
-      });
-    });
+  constructor(db) {
+    this.db = db;
   }
 
-  static async findByEmail(email) {
-    return new Promise((resolve, reject) => {
-      const query = 'SELECT * FROM users WHERE email = ?';
-      db.execute(query, [email], (err, results) => {
-        if (err) reject(err);
-        else resolve(results[0]);
-      });
-    });
+  async findByEmail(email) {
+    const [rows] = await this.db.query("SELECT * FROM auth WHERE email = ?", [email]);
+    return rows[0];
   }
 
-  static async findById(id) {
-    return new Promise((resolve, reject) => {
-      const query = 'SELECT id, name, email, phone, created_at FROM users WHERE id = ?';
-      db.execute(query, [id], (err, results) => {
-        if (err) reject(err);
-        else resolve(results[0]);
-      });
-    });
+  async findById(id) {
+    const [rows] = await this.db.query("SELECT * FROM auth WHERE id = ?", [id]);
+    return rows[0];
   }
 
-  static comparePassword(password, hashedPassword) {
-    return bcrypt.compare(password, hashedPassword);
+  async create(fullName, email, passwordHash) {
+    const [result] = await this.db.query(
+      "INSERT INTO auth (full_name, email, password_hash) VALUES (?, ?, ?)",
+      [fullName, email, passwordHash]
+    );
+    return result.insertId;
   }
 }
 

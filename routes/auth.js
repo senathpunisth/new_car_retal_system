@@ -1,11 +1,17 @@
-const express = require('express');
-const router = express.Router();
-const authController = require('../controllers/authController');
-const { validateRegistration, validateLogin } = require('../middleware/validation');
-const auth = require('../middleware/auth');
+// routes/auth.js
+const express = require("express");
+const { signup, login, me } = require("../controllers/authController");
+const auth = require("../middleware/auth");
 
-router.post('/register', validateRegistration, authController.register);
-router.post('/login', validateLogin, authController.login);
-router.get('/profile', auth, authController.getProfile);
+const router = express.Router();
+
+// POST /api/auth/signup  -> create account
+router.post("/signup", signup);
+
+// POST /api/auth/login   -> sign in (returns JWT + user)
+router.post("/login", login);
+
+// GET /api/auth/me       -> current user (requires Authorization: Bearer <token>)
+router.get("/me", auth, me);
 
 module.exports = router;
